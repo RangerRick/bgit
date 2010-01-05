@@ -33,7 +33,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 
-public class GitRepository extends AbstractRepository implements InitialBuildAwareRepository, MutableQuietPeriodAwareRepository
+public class GitRepository extends AbstractRepository implements WebRepositoryEnabledRepository, InitialBuildAwareRepository, MutableQuietPeriodAwareRepository
 {
     private static final Log log = LogFactory.getLog(GitRepository.class);
 
@@ -423,11 +423,11 @@ public class GitRepository extends AbstractRepository implements InitialBuildAwa
             errorCollection.addError(GIT_REMOTE_BRANCH, "Please specify the remote branch that will be checked out");
         }
 
-//        String webRepoUrl = buildConfiguration.getString(WEB_REPO_URL);
-//        if (!StringUtils.isEmpty(webRepoUrl) && !UrlUtils.verifyHierachicalURI(webRepoUrl))
-//        {
-//            errorCollection.addError(WEB_REPO_URL, "This is not a valid url");
-//        }
+        String webRepoUrl = buildConfiguration.getString(WEB_REPO_URL);
+        if (!StringUtils.isEmpty(webRepoUrl) && !UrlUtils.verifyHierachicalURI(webRepoUrl))
+        {
+            errorCollection.addError(WEB_REPO_URL, "This is not a valid url");
+        }
 
         quietPeriodHelper.validate(buildConfiguration, errorCollection);
         log.debug("validation results:"+errorCollection);
@@ -468,6 +468,8 @@ public class GitRepository extends AbstractRepository implements InitialBuildAwa
 
         setRepositoryUrl(config.getString(GIT_REPO_URL));
         setRemoteBranch(config.getString(GIT_REMOTE_BRANCH));
+        setWebRepositoryUrl(config.getString(WEB_REPO_URL));
+        setWebRepositoryUrlRepoName(config.getString(WEB_REPO_MODULE_NAME));
 
         final Map<String, String> stringMaps = ConfigUtils.getMapFromConfiguration(EXTERNAL_PATH_MAPPINGS2, config);
         externalPathRevisionMappings = ConfigUtils.toLongMap(stringMaps);
@@ -481,6 +483,8 @@ public class GitRepository extends AbstractRepository implements InitialBuildAwa
         HierarchicalConfiguration configuration = super.toConfiguration();
         configuration.setProperty(GIT_REPO_URL, getRepositoryUrl());
         configuration.setProperty(GIT_REMOTE_BRANCH, getRemoteBranch());
+        configuration.setProperty(WEB_REPO_URL, getWebRepositoryUrl());
+        configuration.setProperty(WEB_REPO_MODULE_NAME, getWebRepositoryUrlRepoName());
 
         final Map<String, String> stringMap = ConfigUtils.toStringMap(externalPathRevisionMappings);
         ConfigUtils.addMapToBuilConfiguration(EXTERNAL_PATH_MAPPINGS2, stringMap, configuration);
@@ -569,6 +573,38 @@ public class GitRepository extends AbstractRepository implements InitialBuildAwa
         return StringUtils.isNotBlank(webRepositoryUrl);
     }
 
+    public String getWebRepositoryUrl()
+    {
+        return webRepositoryUrl;
+    }
+
+    public void setWebRepositoryUrl(String url)
+    {
+        webRepositoryUrl = StringUtils.trim(url);
+    }
+
+    public String getWebRepositoryUrlRepoName()
+    {
+        return webRepositoryUrlRepoName;
+    }
+
+    public void setWebRepositoryUrlRepoName(String repoName)
+    {
+        webRepositoryUrlRepoName = StringUtils.trim(repoName);
+    }
+
+    public String getWebRepositoryUrlForFile(CommitFile file)
+    {
+        return null;//fileLinkGenerator.getWebRepositoryUrlForFile(file, webRepositoryUrlRepoName, ViewCvsFileLinkGenerator.GIT_REPO_TYPE);
+    }
+
+
+    @Override
+    public String getWebRepositoryUrlForCommit( @NotNull Commit commit)
+    {
+        return null;// fileLinkGenerator.getWebRepositoryUrlForCommit(commit, webRepositoryUrlRepoName, ViewCvsFileLinkGenerator.GIT_REPO_TYPE);
+    }
+
     public String getHost()
     {
     	return "localhost"; 
@@ -624,6 +660,8 @@ public class GitRepository extends AbstractRepository implements InitialBuildAwa
         return new HashCodeBuilder(101, 11)
                 .append(getKey())
                 .append(getRepositoryUrl())
+                .append(getWebRepositoryUrl())
+                .append(getWebRepositoryUrlRepoName())
                 .append(getTriggerIpAddress())
                 .toHashCode();
     }
@@ -637,6 +675,8 @@ public class GitRepository extends AbstractRepository implements InitialBuildAwa
         GitRepository rhs = (GitRepository) o;
         return new EqualsBuilder()
                 .append(getRepositoryUrl(), rhs.getRepositoryUrl())
+                .append(getWebRepositoryUrl(), rhs.getWebRepositoryUrl())
+                .append(getWebRepositoryUrlRepoName(), rhs.getWebRepositoryUrlRepoName())
                 .append(getTriggerIpAddress(), rhs.getTriggerIpAddress())
                 .isEquals();
     }
