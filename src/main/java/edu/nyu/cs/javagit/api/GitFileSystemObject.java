@@ -178,7 +178,7 @@ public abstract class GitFileSystemObject {
     if(relativePath.isDirectory()){
     	for(File f : relativePath.listFiles()){
     		if(!f.isHidden() && !f.getName().startsWith(".")){
-    			relativeFilePath = this.getRelativePath(f, this.getWorkingTree().getPath());
+    			relativeFilePath = GitFileSystemObject.getRelativePath(f, this.getWorkingTree().getPath());
     			list.add(relativeFilePath );
     		}
     	}

@@ -9,6 +9,5 @@ testRepo
 masterRepo
 .gitignore
 .classpath
-
-
-
+.project
+.settings
