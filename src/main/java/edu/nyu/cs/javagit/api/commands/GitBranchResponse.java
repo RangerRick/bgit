@@ -58,7 +58,11 @@ abstract public class GitBranchResponse implements CommandResponse {
     listOfBranchRecord = new ArrayList<BranchRecord>();
   }
 
-   public boolean containsBranch(Ref branch){
+    public List<Ref> getBranchList() {
+        return branchList;
+    }
+
+    public boolean containsBranch(Ref branch){
         for (Ref foundbranch : branchList ){
             if (foundbranch.isThisBranch( branch)) {
                 return true;
@@ -66,6 +70,15 @@ abstract public class GitBranchResponse implements CommandResponse {
         }
         return false;
     }
+
+    public boolean containsExactBranchMatch(Ref branch){
+         for (Ref foundbranch : branchList ){
+             if (foundbranch.isExactMatch( branch)) {
+                 return true;
+             }
+         }
+         return false;
+     }
 
   public boolean equals(Object o) {
     if (!(o instanceof GitBranchResponse)) {
@@ -150,7 +163,12 @@ abstract public class GitBranchResponse implements CommandResponse {
     return branchList.hashCode() + listOfBranchRecord.hashCode();
   }
 
-  /**
+
+    public List<BranchRecord> getListOfBranchRecord() {
+        return listOfBranchRecord;
+    }
+
+    /**
    * A record containing branch, its head SHA1, and the comment of the commit on head. A list of
    * this object is returned as a part of <code>BranchResponse</code> object when verbose option 
    * is set.
@@ -241,5 +259,7 @@ abstract public class GitBranchResponse implements CommandResponse {
     public boolean isCurrentBranch() {
       return isCurrentBranch;
     }
+
+
   }
 }

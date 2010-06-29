@@ -43,7 +43,7 @@ public class CliGitReset implements IGitReset {
 
   public GitResetResponse gitReset(File repository, GitResetOptions options) throws IOException,
       JavaGitException {
-    return resetProcessor(repository, new GitResetOptions(), null);
+    return resetProcessor(repository, options, null);
   }
 
   public GitResetResponse gitReset(File repository, Ref commitName, List<File> paths)
@@ -167,6 +167,8 @@ public class CliGitReset implements IGitReset {
       } else if (numLinesParsed > 0) {
         errorMsg = new StringBuffer();
         errorMsg.append("Unexpected results.  line" + (numLinesParsed + 1) + "=[" + line + "]");
+      } else if (line.trim().length() == 0 ) {
+            // Skip a blank line
       } else {
         errorMsg = new StringBuffer();
         errorMsg.append("line1=[" + line + "]");

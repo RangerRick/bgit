@@ -2,12 +2,22 @@
 
 This plugin provides Git support to the excellent Atlassian Bamboo continous integration server.
 
-It is compatible with Bamboo 2.2.x and above.
+It is compatible with Bamboo 2.2.x and above, including 2.5.
 
-    
+It also works on Windows, but requires cygwin git (not msysgit).
+
+<h2>Features</h2>
+
+* Full branch support
+* Supports fairly avanced git-fu and handles branches, merges and rebases well.
+* Regular git usage or git-hub projects.
+* Assuming git-hub hooks work with your bamboo version, you should be able to get hooks too.
+* Excellent test coverage of all operations
+
 <h2>RELEASES</h2>
 
-The current release is 1.1.5. Only the latest release is available for <a href="http://cloud.github.com/downloads/krosenvold/bgit/git-plugin-1.1.5.jar">download</a>. Older releases will have to be built from source, which is really easy:
+The current release is 1.2.2 Only the latest release is available for
+<a href="http://cloud.github.com/downloads/krosenvold/bgit/git-plugin-1.2.2.jar">download</a>. Older releases will have to be built from source, which is really easy.
 
 <h3>Branch/Release policy</h3>
 
@@ -27,13 +37,28 @@ cd bgit
 mvn install
 # the generated .jar will be inside "target" folder.
 # If problems with unit tests failing, remove masterRepo and testRepo* folders
-# You MUST have git:// protocol access to github.com to be able to build
+# You MUST have git:// protocol access to github.com to be able to build. If not you can add -DskipTests to mvn command.
+# If you're running on an old-ish git (for instance 1.6.3.3) an the testCloneThenRebaseLocal test fails, you need to run
+# git config --global user.email "you@example.com"
+# git config --global user.name "Your Name"
 </pre>
+
+A lot of people prefer a double symlink installation of the jar file when building from source:
+Assumes bgit is in  ~/bgit
+<pre>
+ln -s ~/bgit/target/git-plugin-1.2-SNAPSHOT.jar  ~/current-git-plugin
+ln -s ~/current-git-plugin $BAMBOO_INSTALL_DIR/webapp/WEB-INF/lib/git-plugin.jar
+</pre>
+In this way you can just change the symlink in your home directory as the version number changes, instead of
+messing with copying the jar file.
+
 
 <h2>INSTALLATION</h2>
 * Copy to $BAMBOO_INSTALL_DIR/webapp/WEB-INF/lib
 * Remove older versions from same folder
 * Restart Bamboo
+
+
 
 Now when you create or edit plans you will be able to select “Git” as the
 repository provider.
@@ -43,12 +68,58 @@ should be able to access the repositories.
 
 All the groundwork was done by Don Brown from Atlassian. Until Atlassian can
 provide resources to the plugin I will be mantaining it here on github
-==== USAGE WARNING ====
+
+
+<h2>Problem tracking</h2>
+It is important that permissions and git setup is correct on ALL nodes (with or without remote agents)
+
+Also ensure that all remote agents AND the local agent can perform the clone, permission problems related to file systems
+often give low-quality error messages, often related to complaints about the "checkout" folder.
+
+
+<h3>==== USAGE WARNING ====</h3>
 If you are using SSH make sure to use ssh keys. In general, make sure that a
-background script can pull from your repo. If it can't then Bamboo will not be
+shell script (running as the same user) can pull from your repo. If it can't then Bamboo will not be
 able to checkout neither.
 
 <h2>Release notes</h2>
+
+1.2.2 & 1.2.1
+
+Issue 8, 11 and 12 fixed in these two. Time for a binary release ;) 
+
+1.2 RELEASE NOTES
+
+- Fixed race condition where build agent could check out different version than master bamboo agent thought.
+- Fixed issue where the build would not move on when the last-built revision was no longer present in the
+  repository due to rebasing. Change detection was returning "no change"
+- Does not show full email address - nice to keep those spammers away (Thanks to Luke Taylor)
+- Fixed issue with "older" git versions (1.6.3.3) and branch detection.
+- Tested agents and agent based builds, and they work well.
+
+1.1.9 RELEASE NOTES
+
+- This version includes greatly improved checkout/fetch/update algorithm that should also handle rebases
+  fairly well. Change detection upon rebase is still somewhat in the blue - it shouldn't crash but it won't give
+  too much valuable information either. That's what you get for messing with history.
+   
+
+
+1.1.8 RELEASE NOTES
+
+Fixed regression introduced with checkout logic in 1.1.6
+
+1.1.7 RELEASE NOTES
+Thanks to Benjamin Reed (RangerRick)
+Switched to bamboo 2.5 libs, bamboo 2.5 compatible. Still works on 2.4.x.
+
+1.1.6 RELEASE NOTES
+All changes thanks to Ivan Sungurov (isungurov)
+
+- Does not re-clone repository when switching branch
+- Internal change to use checkout instead of merge upon update. May improve rebasing..
+- Updated to 2.4 libs. Probably still runs on older versions.
+
 1.1.5 RELEASE NOTES
 
 - Fixed problem with rebased repos where out-of order dates would cause bamboo
@@ -91,6 +162,9 @@ CHANGELOG
 - Graeme Mathieson (git submodule support)
 - Kristian Rosenvold (several fixes)
 - Alex Fisher (Rebasing fix)
+- Ivan Sungurov (isungurov)
+- Benjamin Reed (RangerRick)
+- Luke Taylor (tekul)
 
 <h2>Related links</h2>
 <ul>

@@ -13,7 +13,6 @@ import com.atlassian.bamboo.v2.build.BuildChanges;
 import com.atlassian.bamboo.v2.build.BuildChangesImpl;
 import com.atlassian.bamboo.v2.build.BuildContext;
 import com.atlassian.bamboo.ww2.actions.build.admin.create.BuildConfiguration;
-import com.opensymphony.util.UrlUtils;
 import edu.nyu.cs.javagit.api.JavaGitException;
 import edu.nyu.cs.javagit.api.Ref;
 import edu.nyu.cs.javagit.api.commands.*;
@@ -32,8 +31,9 @@ import org.jetbrains.annotations.Nullable;
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
+import java.util.regex.Pattern;
 
-public class GitRepository extends AbstractRepository implements WebRepositoryEnabledRepository, InitialBuildAwareRepository, MutableQuietPeriodAwareRepository
+public class GitRepository extends AbstractRepository implements InitialBuildAwareRepository, MutableQuietPeriodAwareRepository
 {
     private static final Log log = LogFactory.getLog(GitRepository.class);
 
@@ -52,6 +52,8 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
 
     private static final String EXTERNAL_PATH_MAPPINGS2 = REPO_PREFIX + "externalsToRevisionMappings";
 
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("[a-zA-Z0-9._%-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,4}");
+
 
     // ------------------------------------------------------------------------------------------------- Type Properties
     private String repositoryUrl;
@@ -60,6 +62,7 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
     private String passphrase;
     private String webRepositoryUrlRepoName;
     private String remoteBranch;
+    private boolean hideAuthorEmail = true;
 
     // Quiet Period
     private final QuietPeriodHelper quietPeriodHelper = new QuietPeriodHelper(REPO_PREFIX);
@@ -81,6 +84,10 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
      */
     private Map<String, Long> externalPathRevisionMappings = new HashMap<String, Long>();
 
+
+    /*
+     * Used by central bamboo server to determine changes. 
+     */
 
     @NotNull
     public synchronized  BuildChanges collectChangesSinceLastBuild( @NotNull String planKey, @NotNull String lastVcsRevisionKey) throws RepositoryException
@@ -132,6 +139,8 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
         }
     }
 
+    // Todo: Make sure we use vcsRevisionKey in cloneOrFetch
+
     @NotNull public String retrieveSourceCode( @NotNull String planKey, @Nullable String vcsRevisionKey) throws RepositoryException
     {
         log.debug("retrieving source code");
@@ -139,7 +148,7 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
         {
                 getSubstitutedRepositoryUrl();
                 File sourceDir = getCheckoutDirectory(planKey); // sourceedir = xxx/checkout
-                cloneOrFetch(sourceDir);
+                cloneOrFetch(sourceDir, vcsRevisionKey);
                 submodule_update(sourceDir);
                 return detectCommitsForUrl(vcsRevisionKey, new ArrayList<Commit>(), sourceDir, planKey);
         } catch (IOException e) {
@@ -182,7 +191,24 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
         }
 
         opt.setOptFileDetails(true);
-        List<GitLogResponse.Commit> gitCommits = gitLog.log(checkoutDir, opt, Ref.createBranchRef("origin/"+remoteBranch));
+        List<GitLogResponse.Commit> gitCommits;
+        try {
+           gitCommits = gitLog.log(checkoutDir, opt);
+        } catch (JavaGitException e){
+            // Typically because the sha1 does not exist. Rebase has happened.
+
+            // Todo: In the checkout, if there is a checkout and it is diverged from origin/branch,
+            // we could detect the git merge-base and diff from there
+/*            wereHamster said:
+                    to see if origin/bax has been rebased, do git fetch origin; test "$(git rev-parse origin/bax..origin/baz@{1})" && echo "origin/baz has been
+                     rebased" */
+            // We *should* do rebase-detection somewhere in the collectChangesSinceLastBuild, since the server will always be able to tell,
+            // since it always has the history from the previous build.
+
+            // Important note; we always need something here<
+
+            gitCommits = getDefaultLogWhenWeDontKnowWhatElsetoDo(checkoutDir, gitLog);
+        }
         if (gitCommits.size() > 0)
         {
             log.debug("commits found:"+gitCommits.size());
@@ -201,6 +227,13 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
                     log.info("Author name is empty for " + commit.toString());
                     authorName = Author.UNKNOWN_AUTHOR;
                 }
+
+                if (hideAuthorEmail)
+                {
+                    authorName = EMAIL_PATTERN.matcher(authorName).replaceFirst("");
+                    authorName.trim();
+                }
+
                 commit.setAuthor(new AuthorImpl(authorName));
                 @SuppressWarnings({"deprecation"}) Date date2 = new Date(logEntry.getDateString());
                 commit.setDate(date2);
@@ -229,24 +262,33 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
 
                 commits.add(commit);
             }
+            log.debug("Repository change detected for " + repositoryUrl + ", returning "+latestRevisionOnServer);
             return latestRevisionOnServer;
         }
-        log.debug("returning last revision:"+lastRevisionChecked);
+        log.debug("No change detected, returning previous last revision:"+lastRevisionChecked);
         return lastRevisionChecked;
     }
 
 
 
-    private String getSha1FromCommitDate(String lastRevisionChecked, File checkoutDir) throws JavaGitException, IOException, RepositoryException {
+    String getSha1FromCommitDate(String lastRevisionChecked, File checkoutDir) throws JavaGitException, IOException, RepositoryException {
         GitLog gitLog = new GitLog();
         GitLogOptions opt = new GitLogOptions();
         opt.setOptLimitCommitAfter(true, lastRevisionChecked);
         opt.setOptFileDetails(true);
-        List<GitLogResponse.Commit> CandidateGitCommits = gitLog.log(checkoutDir, opt, Ref.createBranchRef("origin/" + remoteBranch));
-        if (CandidateGitCommits.size() < 1) {
-            throw new RepositoryException("No commits with revision: " + lastRevisionChecked);
+        List<GitLogResponse.Commit> candidateGitCommits = null;
+        try {
+             candidateGitCommits = gitLog.log(checkoutDir, opt, Ref.createBranchRef("origin/" + remoteBranch));
+        } catch (JavaGitException e){
+            candidateGitCommits = getDefaultLogWhenWeDontKnowWhatElsetoDo(checkoutDir, gitLog);
+            return candidateGitCommits.get( 0  ).getSha(); // #fail, just take the most recent one
         }
-        for (GitLogResponse.Commit commit : CandidateGitCommits) {
+
+        if (candidateGitCommits.size() < 1) {
+            candidateGitCommits = getDefaultLogWhenWeDontKnowWhatElsetoDo(checkoutDir, gitLog);
+            return candidateGitCommits.get( candidateGitCommits.size() -1 ).getSha(); // We're just guessing, do an old one
+        }
+        for (GitLogResponse.Commit commit : candidateGitCommits) {
             if (commit.getDateString().equals(lastRevisionChecked)) {
                 log.info("Converting lastRevisionChecked from Date into SHA hash");
                 return commit.getSha();
@@ -254,6 +296,15 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
         }
         log.info("lastRevisionChecked " + lastRevisionChecked + " did not look like a sha1, but did not match a commit date. This may happen if the commit is gone");
         return lastRevisionChecked;
+    }
+
+    private List<GitLogResponse.Commit> getDefaultLogWhenWeDontKnowWhatElsetoDo(File checkoutDir, GitLog gitLog) throws JavaGitException, IOException {
+        GitLogOptions opt;
+        List<GitLogResponse.Commit> candidateGitCommits;
+        opt = new GitLogOptions();
+        opt.setOptLimitCommitMax(true, 50);
+        candidateGitCommits = gitLog.log(checkoutDir, opt);
+        return candidateGitCommits;
     }
 
     private boolean isANonSha1RevisionSpecifier(String lastRevisionChecked) {
@@ -270,18 +321,27 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
     
 
     Ref gitStatus(File sourceDir) throws IOException, JavaGitException {
-         GitStatus gitStatus = new GitStatus();
-         GitStatusOptions gitStatusOptions = new GitStatusOptions();
-         gitStatusOptions.setOptAll(true);
-         GitStatusResponse response = gitStatus.status(sourceDir, gitStatusOptions);
+        GitStatusResponse response = getGitStatusResponse(sourceDir);
          return response.getBranch();
      }
 
+    GitStatusResponse getGitStatusResponse(File sourceDir) throws JavaGitException, IOException {
+        GitStatus gitStatus = new GitStatus();
+        GitStatusOptions gitStatusOptions = new GitStatusOptions();
+        return gitStatus.status(sourceDir, gitStatusOptions);
+    }
+
+    
     private void checkout(File sourceDir, Ref remoteBranch, Ref localBranch) throws IOException, JavaGitException {
         GitCheckout gitCheckout = new GitCheckout();
         GitCheckoutOptions options = new GitCheckoutOptions();
         options.setOptB(localBranch);
         gitCheckout.checkout( sourceDir, options, remoteBranch );
+    }
+    private void checkoutExistingLocalBranch(File sourceDir, Ref localBranch) throws IOException, JavaGitException {
+        GitCheckout gitCheckout = new GitCheckout();
+        GitCheckoutOptions options = new GitCheckoutOptions();
+        gitCheckout.checkout( sourceDir, options, localBranch );
     }
 
 
@@ -314,28 +374,46 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
      * A) A clone of a repository. When cloning, the proper branch is checked if it is not correct by default.
      * B) A fetch. Since the repo is created by use case A, it will always be on the proper branch.
      *
-     * If we ever should support switching branches, it should be considered realized by ditching the
-     * entire repository, probably using the isRepositoryDifferent method or similar.
-     *
+     * Branch switching is supported.
+     * 
      * @param sourceDir The checkout directory
      * @throws IOException When something bad happens
      * @throws JavaGitException When something else bad happens.
      */
     void cloneOrFetch(File sourceDir) throws IOException, JavaGitException {
+        reallyCloneOrFetch( sourceDir, null);
+    }
+
+    void cloneOrFetch(File sourceDir, String requestedVersion) throws IOException, JavaGitException {
+        reallyCloneOrFetch(sourceDir, isSha1( requestedVersion)  ? Ref.createSha1Ref(requestedVersion) :  null);
+
+    }
+
+    void reallyCloneOrFetch(File sourceDir, Ref requestedTargetRevision) throws IOException, JavaGitException {
         Ref branchWithOriginPrefix = Ref.createBranchRef("origin/" + this.remoteBranch);
 
         if (containsValidRepo(sourceDir)) {
             CliGitFetch fetch = new CliGitFetch();
             log.debug("doing fetch");
             fetch.fetch(sourceDir);
-            log.debug("fetch complete");
 
-            log.debug("doing merge");
-            GitMerge merge = new GitMerge();
-            // FIXME: should really only merge to the target revision
-            merge.merge(sourceDir, branchWithOriginPrefix);
+
+            final Ref currentCheckoutBranch = gitStatus(sourceDir);
+            if (isRemoteBranchSpecified()){
+                if (!branchWithOriginPrefix.isThisBranch(currentCheckoutBranch)){
+                    GitBranchResponse branchList = getAllBranches(sourceDir);
+                    final Ref branch = Ref.createBranchRef(this.remoteBranch);
+                    if (!branchList.containsExactBranchMatch( branch )) {
+                        checkout( sourceDir, branchWithOriginPrefix, branch);
+                        return; // No need to reset here.
+                    } else {
+                        checkoutExistingLocalBranch( sourceDir, branch);
+                    }
+                }
+
+            }
         } else {
-            log.debug("no repo found, creating");
+            log.debug("no repo found, creating new clone");
             clone(repositoryUrl, sourceDir, null);
             submodule_update(sourceDir);
 
@@ -351,6 +429,23 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
                 }
             }
         }
+        // At this point the proper branch is checked out or created. NO matter which path is used.
+
+        final Ref currentCheckoutBranch = gitStatus(sourceDir);
+        if (requestedTargetRevision == null){
+            requestedTargetRevision = Ref.createRemoteRef( "origin", currentCheckoutBranch.getName());
+        }
+        log.debug("resetting local branch to point at " + requestedTargetRevision);
+        GitResetOptions gitResetOptions = new GitResetOptions(GitResetOptions.ResetType.HARD, requestedTargetRevision);
+        try {
+        GitReset.gitReset( sourceDir, gitResetOptions);
+        } catch (JavaGitException e){
+            log.warn("Had problem resetting head, trying " + branchWithOriginPrefix.getName());
+            // Probably could not find SHA1
+            gitResetOptions = new GitResetOptions(GitResetOptions.ResetType.HARD, branchWithOriginPrefix);
+            GitReset.gitReset( sourceDir, gitResetOptions);
+        }
+
     }
 
     void clone(File sourceDir, GitCloneOptions gitCloneOptions) throws IOException, JavaGitException {
@@ -390,6 +485,14 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
         return response.getCurrentBranch().equals( branchName);
     }
 
+    List<GitLogResponse.Commit> gitLog(File sourceDir, int numItems) throws IOException, JavaGitException {
+        GitLog gitLog = new GitLog();
+        GitLogOptions opt = new GitLogOptions();
+        opt.setOptLimitCommitOutputs(true, numItems);
+        opt.setOptFileDetails(true);
+        return gitLog.log(sourceDir, opt);
+    }
+
     private GitBranchResponse getAllBranches(File sourceDir) throws IOException, JavaGitException {
         GitBranch gitBranch = new GitBranch();
         GitBranchOptions gitBranchOptions = new GitBranchOptions();
@@ -423,11 +526,11 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
             errorCollection.addError(GIT_REMOTE_BRANCH, "Please specify the remote branch that will be checked out");
         }
 
-        String webRepoUrl = buildConfiguration.getString(WEB_REPO_URL);
-        if (!StringUtils.isEmpty(webRepoUrl) && !UrlUtils.verifyHierachicalURI(webRepoUrl))
-        {
-            errorCollection.addError(WEB_REPO_URL, "This is not a valid url");
-        }
+//        String webRepoUrl = buildConfiguration.getString(WEB_REPO_URL);
+//        if (!StringUtils.isEmpty(webRepoUrl) && !UrlUtils.verifyHierachicalURI(webRepoUrl))
+//        {
+//            errorCollection.addError(WEB_REPO_URL, "This is not a valid url");
+//        }
 
         quietPeriodHelper.validate(buildConfiguration, errorCollection);
         log.debug("validation results:"+errorCollection);
@@ -443,7 +546,6 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
             return !new EqualsBuilder()
                     .append(this.getName(), existing.getName())
                     .append(this.getRepositoryUrl(), existing.getRepositoryUrl())
-                    .append(this.getRemoteBranch(), existing.getRemoteBranch())
                     .isEquals();
         }
         else
@@ -468,8 +570,6 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
 
         setRepositoryUrl(config.getString(GIT_REPO_URL));
         setRemoteBranch(config.getString(GIT_REMOTE_BRANCH));
-        setWebRepositoryUrl(config.getString(WEB_REPO_URL));
-        setWebRepositoryUrlRepoName(config.getString(WEB_REPO_MODULE_NAME));
 
         final Map<String, String> stringMaps = ConfigUtils.getMapFromConfiguration(EXTERNAL_PATH_MAPPINGS2, config);
         externalPathRevisionMappings = ConfigUtils.toLongMap(stringMaps);
@@ -483,8 +583,6 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
         HierarchicalConfiguration configuration = super.toConfiguration();
         configuration.setProperty(GIT_REPO_URL, getRepositoryUrl());
         configuration.setProperty(GIT_REMOTE_BRANCH, getRemoteBranch());
-        configuration.setProperty(WEB_REPO_URL, getWebRepositoryUrl());
-        configuration.setProperty(WEB_REPO_MODULE_NAME, getWebRepositoryUrlRepoName());
 
         final Map<String, String> stringMap = ConfigUtils.toStringMap(externalPathRevisionMappings);
         ConfigUtils.addMapToBuilConfiguration(EXTERNAL_PATH_MAPPINGS2, stringMap, configuration);
@@ -573,38 +671,6 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
         return StringUtils.isNotBlank(webRepositoryUrl);
     }
 
-    public String getWebRepositoryUrl()
-    {
-        return webRepositoryUrl;
-    }
-
-    public void setWebRepositoryUrl(String url)
-    {
-        webRepositoryUrl = StringUtils.trim(url);
-    }
-
-    public String getWebRepositoryUrlRepoName()
-    {
-        return webRepositoryUrlRepoName;
-    }
-
-    public void setWebRepositoryUrlRepoName(String repoName)
-    {
-        webRepositoryUrlRepoName = StringUtils.trim(repoName);
-    }
-
-    public String getWebRepositoryUrlForFile(CommitFile file)
-    {
-        return null;//fileLinkGenerator.getWebRepositoryUrlForFile(file, webRepositoryUrlRepoName, ViewCvsFileLinkGenerator.GIT_REPO_TYPE);
-    }
-
-
-    @Override
-    public String getWebRepositoryUrlForCommit( @NotNull Commit commit)
-    {
-        return null;// fileLinkGenerator.getWebRepositoryUrlForCommit(commit, webRepositoryUrlRepoName, ViewCvsFileLinkGenerator.GIT_REPO_TYPE);
-    }
-
     public String getHost()
     {
     	return "localhost"; 
@@ -655,13 +721,19 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
         this.maxRetries = maxRetries;
     }
 
+    public boolean isHideAuthorEmail() {
+        return hideAuthorEmail;
+    }
+
+    public void setHideAuthorEmail(boolean hideAuthorEmail) {
+        this.hideAuthorEmail = hideAuthorEmail;
+    }
+
     public int hashCode()
     {
         return new HashCodeBuilder(101, 11)
                 .append(getKey())
                 .append(getRepositoryUrl())
-                .append(getWebRepositoryUrl())
-                .append(getWebRepositoryUrlRepoName())
                 .append(getTriggerIpAddress())
                 .toHashCode();
     }
@@ -675,8 +747,6 @@ public class GitRepository extends AbstractRepository implements WebRepositoryEn
         GitRepository rhs = (GitRepository) o;
         return new EqualsBuilder()
                 .append(getRepositoryUrl(), rhs.getRepositoryUrl())
-                .append(getWebRepositoryUrl(), rhs.getWebRepositoryUrl())
-                .append(getWebRepositoryUrlRepoName(), rhs.getWebRepositoryUrlRepoName())
                 .append(getTriggerIpAddress(), rhs.getTriggerIpAddress())
                 .isEquals();
     }
