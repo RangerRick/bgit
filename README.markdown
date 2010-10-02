@@ -6,6 +6,14 @@ It is compatible with Bamboo 2.2.x and above, including 2.5.
 
 It also works on Windows, but requires cygwin git (not msysgit).
 
+<h1>Mailing list</h2>
+If you're a user you're advised to sign up for the mailing list at
+<a href="http://groups.google.com/group/bamboogitplugin">google groups</a>
+
+We're a reasonably quiet bunch, so don't expect your mailbox to explode
+just because you sign up. Notifications of issues wrt upgrades or important bugs will be announced on the group.
+
+
 <h2>Features</h2>
 
 * Full branch support
@@ -17,7 +25,8 @@ It also works on Windows, but requires cygwin git (not msysgit).
 <h2>RELEASES</h2>
 
 The current release is 1.2.2 Only the latest release is available for
-<a href="http://cloud.github.com/downloads/krosenvold/bgit/git-plugin-1.2.2.jar">download</a>. Older releases will have to be built from source, which is really easy.
+<a href="http://cloud.github.com/downloads/krosenvold/bgit/git-plugin-1.2.2.jar">download</a>. Older releases will have to be built from
+source, which is really easy.
 
 <h3>Branch/Release policy</h3>
 
@@ -165,6 +174,7 @@ CHANGELOG
 - Ivan Sungurov (isungurov)
 - Benjamin Reed (RangerRick)
 - Luke Taylor (tekul)
+- David Matějček (dmatej)
 
 <h2>Related links</h2>
 <ul>
